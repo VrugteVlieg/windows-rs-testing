@@ -1,8 +1,6 @@
-use std::sync::mpsc::Receiver;
-
 use windows::Win32::{NetworkManagement::WiFi::{WlanOpenHandle, WLAN_INTERFACE_INFO_LIST, L2_NOTIFICATION_DATA, WLAN_INTERFACE_INFO, WlanEnumInterfaces, WlanRegisterNotification, WlanGetAvailableNetworkList, WLAN_AVAILABLE_NETWORK_LIST, WlanGetNetworkBssList, DOT11_BSS_TYPE, WLAN_BSS_LIST, WlanCloseHandle, WlanScan, DOT11_SSID}, Foundation::HANDLE};
 
-use crate::{utils::{self, WlanNotifcationSource}, available_network_list::NetworkList, bss_entry_list::{BssList, get_network_bss_list}};
+use crate::{utils::{self, WlanNotifcationSource}, available_network_list::NetworkList, bss_entry_list::BssList};
 
 
 
@@ -90,7 +88,7 @@ impl WindowsApiClient {
         }
     }
 
-    pub fn retrieve_bss_list(&self, target_ssid: Option<*const DOT11_SSID>) -> BssList {
+    pub fn retrieve_bss_list(&self, target_ssid: Option<DOT11_SSID>) -> BssList {
         unsafe {
             let (bss_type, security_enable) = match target_ssid {
                 Some(_) => {
@@ -99,39 +97,54 @@ impl WindowsApiClient {
                 None => (3, false)
             };
 
-            let target_ssid_str = if let Some(target_ssid) = target_ssid.clone() {
-                utils::parse_ssid((*target_ssid).clone())      
-            } else {
-                "None".to_string()
-            };
-            println!("Fetching networks bss list with direction {target_ssid_str}", );
-            // let p_dot_11_ssid = target_ssid.map(|e| utils::create_dot_11_ssid_ptr(&e));
             let mut network_bss_list_ptr: *mut WLAN_BSS_LIST = std::ptr::null_mut();
 
+            if let Some(target_ssid) = target_ssid {
+                let test_ptr: *const DOT11_SSID = &target_ssid;
+                WlanGetNetworkBssList(
+                    self.handle,
+                    &self.network_interface.InterfaceGuid,
+                    Some(test_ptr),
+                    DOT11_BSS_TYPE(bss_type),
+                    security_enable,
+                    None,
+                    &mut network_bss_list_ptr,
+                );
+            } else {
+                WlanGetNetworkBssList(
+                    self.handle,
+                    &self.network_interface.InterfaceGuid,
+                    None,
+                    DOT11_BSS_TYPE(bss_type),
+                    security_enable,
+                    None,
+                    &mut network_bss_list_ptr,
+                );
+            }
 
-            println!("Pdot11SSID: {:?}", target_ssid);
 
-            // BssList::from(get_network_bss_list(self.handle, &self.network_interface, p_dot_11_ssid))
+            // let target_ssid_str = if let Some(target_ssid) = target_ssid{
+            //     // println!("Before parsing the passed ssid struct\n{:?}", *target_ssid);
+            //     // let res = utils::parse_ssid((*target_ssid).clone());
+            //     // println!("Parsed {res}({}) as retrieval target", res.len());
+            //     // println!("After parsing the passed ssid struct\n{:?}", *target_ssid);
+            //     "Shibal".to_string()
+            //     // res
+            // } else {
+            //     "None".to_string()
+            // };
+
+
             
-            WlanGetNetworkBssList(
-                self.handle,
-                &self.network_interface.InterfaceGuid,
-                target_ssid,
-                DOT11_BSS_TYPE(bss_type),
-                security_enable,
-                None,
-                &mut network_bss_list_ptr,
-            );
+            
         
             let results = BssList::from(network_bss_list_ptr);
-            if target_ssid.is_some() && !results.parsed_networks.is_empty() {
-                let output = BssList {
-                    networks: results.networks,
-                    parsed_networks: 
-                }
-                
+
+            if target_ssid.is_some() {
+                println!("Results from targeted scan for {}:\n{:?}", "HosHos", results);
             }
-            out
+         
+            results
         }
     }
 
@@ -139,9 +152,24 @@ impl WindowsApiClient {
         println!("Triggering {} ap scan", if target_ssid.is_some() {"directed"} else {"undirected"});
         unsafe {
             if let Some(ref target) = target_ssid {
-                println!("SSID has len {}\nbytes: {:?}", (**target).uSSIDLength, (**target).ucSSID);
+                println!("SSID struct: {:?} @ {:p} @ {:p}", **target, *target, target);
             }
             WlanScan(self.handle, &self.network_interface.InterfaceGuid, target_ssid, None, None);
+        }
+
+    }
+
+
+    pub fn trigger_ap_scan_too(&self, target_ssid: Option<DOT11_SSID>) {
+        println!("Triggering {} ap scan", if target_ssid.is_some() {"directed"} else {"undirected"});
+        unsafe {
+            if let Some(ref target) = target_ssid {
+                println!("SSID struct: {:?} @ {:p}", *target, target);
+                let target_ptr: *const DOT11_SSID = target;
+                WlanScan(self.handle, &self.network_interface.InterfaceGuid, Some(target_ptr), None, None);
+            } else {
+                WlanScan(self.handle, &self.network_interface.InterfaceGuid, None, None, None);
+            }
         }
 
     }

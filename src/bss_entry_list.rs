@@ -1,35 +1,7 @@
-use std::ops::Range;
-
-use windows::Win32::{NetworkManagement::WiFi::{WLAN_BSS_ENTRY, WLAN_BSS_LIST, WLAN_INTERFACE_INFO, DOT11_SSID, WlanGetNetworkBssList, DOT11_BSS_TYPE}, Foundation::HANDLE};
+use windows::Win32::NetworkManagement::WiFi::{WLAN_BSS_ENTRY, WLAN_BSS_LIST};
 
 use crate::utils;
 
-
-pub fn get_network_bss_list(handle: HANDLE, interface: &WLAN_INTERFACE_INFO, target_ssid: Option<*const DOT11_SSID>) -> *mut WLAN_BSS_LIST {
-
-
-    let (bss_type, security_enable) = match target_ssid {
-        Some(_) => {
-            (1, true)   
-        },
-        None => (3, false)
-    };
-
-    unsafe {
-        let mut network_bss_list_ptr: *mut WLAN_BSS_LIST = std::ptr::null_mut();
-        WlanGetNetworkBssList(
-            handle,
-            &interface.InterfaceGuid,
-            target_ssid,
-            DOT11_BSS_TYPE(bss_type),
-            security_enable,
-            None,
-            &mut network_bss_list_ptr,
-        );
-
-        network_bss_list_ptr
-    }
-}
 
 
 #[derive(Debug)]

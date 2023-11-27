@@ -27,6 +27,8 @@ pub fn parse_ssid(input: DOT11_SSID) -> String {
     let ssid = String::from_utf8(input.ucSSID[0..ssid_len].to_vec())
         .unwrap_or("Unable to parse ssid".to_string());
 
+    // println!("Parsed {} from {:#?}", ssid, input);
+
     return ssid;
 }
 
@@ -36,6 +38,7 @@ pub fn parse_bssid(input: [u8; 6]) -> String {
 
 
 pub fn create_dot_11_ssid_ptr(ssid: &str) -> *const DOT11_SSID {
+    println!("Creating ssid struct from {ssid}");
     let mut ssid_buffer = [0_u8; 32];
     let ssid_len = ssid.len();
     ssid_buffer[0..ssid_len].copy_from_slice(ssid.as_bytes());
@@ -43,8 +46,28 @@ pub fn create_dot_11_ssid_ptr(ssid: &str) -> *const DOT11_SSID {
         uSSIDLength: ssid_len as u32,
         ucSSID: ssid_buffer
     };
+    unsafe {
+        println!("Created struct ptr @ {:p} {:?} ", dot11_ssid_ptr, *dot11_ssid_ptr);
+    }
 
     dot11_ssid_ptr
+}
+
+
+pub fn create_dot_11_ssid(ssid: &str) -> DOT11_SSID {
+    println!("Creating ssid struct from {ssid}");
+    let mut ssid_buffer = [0_u8; 32];
+    let ssid_len = ssid.len();
+    ssid_buffer[0..ssid_len].copy_from_slice(ssid.as_bytes());
+    let dot11_ssid = DOT11_SSID {
+        uSSIDLength: ssid_len as u32,
+        ucSSID: ssid_buffer
+    };
+    
+    println!("Created struct {:?} ", dot11_ssid);
+    
+
+    dot11_ssid
 }
 #[derive(Debug)]
 pub enum WlanNotifcationSource {
