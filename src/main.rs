@@ -13,13 +13,13 @@ fn main() {
         let target_ssid = utils::create_dot_11_ssid("Hello World Too");
         let mut counter = 0;
 
-        while counter < 5 {
+        loop {
             counter+=1;
+            println!("Starting cycle {counter}");
 
             let full_bss_list = windows_client.retrieve_bss_list(None);
-            println!("Cycle {counter}");
-            let directed_bss_list = windows_client.retrieve_bss_list(Some(target_ssid));
-            println!("Targeted bss list ({})\n{}\n", directed_bss_list.parsed_networks.len(), directed_bss_list);
+            // let directed_bss_list = windows_client.retrieve_bss_list(Some(target_ssid));
+            // println!("Targeted bss list ({})\n{}\n", directed_bss_list.parsed_networks.len(), directed_bss_list);
             println!("Full bss list ({})\n{}\n", full_bss_list.parsed_networks.len(), full_bss_list);
             let full_network_list = windows_client.retrieve_network_list();
             println!("Full network list ({})\n{}\n", full_network_list.parsed_networks.len(), full_network_list);
