@@ -1,17 +1,49 @@
 use std::ops::Range;
 
-use windows::Win32::NetworkManagement::WiFi::DOT11_SSID;
 use anyhow::anyhow;
+use windows::Win32::NetworkManagement::WiFi::DOT11_SSID;
+
+const LOWER_BOUND_5_GHZ: u32 = 5150_000;
+const UPPER_BOUND_5_GHZ: u32 = 5895_000;
+const LOWER_BOUND_2_GHZ: u32 = 2401_000;
+const UPPER_BOUND_2_GHZ: u32 = 2495_000;
+
+pub enum NetworkBand {
+    Ghz2_4,
+    Ghz5
+}
+
+impl std::fmt::Display for NetworkBand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let to_write = match self {
+            NetworkBand::Ghz2_4 => "2.4",
+            NetworkBand::Ghz5 => "5"
+        };
+      write!(f, "{to_write}")
+    }
+}
+
+impl TryFrom<u32> for NetworkBand {
+    type Error = anyhow::Error;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
+        match value {
+            LOWER_BOUND_2_GHZ..=UPPER_BOUND_2_GHZ => Ok(NetworkBand::Ghz2_4),
+            LOWER_BOUND_5_GHZ..=UPPER_BOUND_5_GHZ => Ok(NetworkBand::Ghz5),
+            _ => Err(anyhow!("Invalid frequency for network {value}"))
+        }
+    }
+}
+
+
 
 pub fn map_freq_to_channel(freq: u32) -> u32 {
-    let lower_bound_5_ghz = 5160_000;
-    let lower_bound_2_ghz = 2412_000;
     let channel_center_separation = 5_000;
 
-    if freq > lower_bound_5_ghz {
-        32 + (freq - lower_bound_5_ghz) / channel_center_separation
+    if freq > LOWER_BOUND_5_GHZ {
+        32 + (freq - LOWER_BOUND_5_GHZ) / channel_center_separation
     } else {
-        1 + (freq - lower_bound_2_ghz) / channel_center_separation
+        1 + (freq - LOWER_BOUND_2_GHZ) / channel_center_separation
     }
 }
 
@@ -27,32 +59,12 @@ pub fn parse_ssid(input: DOT11_SSID) -> String {
     let ssid = String::from_utf8(input.ucSSID[0..ssid_len].to_vec())
         .unwrap_or("Unable to parse ssid".to_string());
 
-    // println!("Parsed {} from {:#?}", ssid, input);
-
     return ssid;
 }
 
 pub fn parse_bssid(input: [u8; 6]) -> String {
     input.map(|e| format!("{e:02X}")).join(":")
 }
-
-
-pub fn create_dot_11_ssid_ptr(ssid: &str) -> *const DOT11_SSID {
-    println!("Creating ssid struct from {ssid}");
-    let mut ssid_buffer = [0_u8; 32];
-    let ssid_len = ssid.len();
-    ssid_buffer[0..ssid_len].copy_from_slice(ssid.as_bytes());
-    let dot11_ssid_ptr: *const DOT11_SSID = &DOT11_SSID {
-        uSSIDLength: ssid_len as u32,
-        ucSSID: ssid_buffer
-    };
-    unsafe {
-        println!("Created struct ptr @ {:p} {:?} ", dot11_ssid_ptr, *dot11_ssid_ptr);
-    }
-
-    dot11_ssid_ptr
-}
-
 
 pub fn create_dot_11_ssid(ssid: &str) -> DOT11_SSID {
     println!("Creating ssid struct from {ssid}");

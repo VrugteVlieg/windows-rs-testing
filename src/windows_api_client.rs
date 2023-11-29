@@ -1,6 +1,8 @@
-use windows::Win32::{NetworkManagement::WiFi::{WlanOpenHandle, WLAN_INTERFACE_INFO_LIST, L2_NOTIFICATION_DATA, WLAN_INTERFACE_INFO, WlanEnumInterfaces, WlanRegisterNotification, WlanGetAvailableNetworkList, WLAN_AVAILABLE_NETWORK_LIST, WlanGetNetworkBssList, DOT11_BSS_TYPE, WLAN_BSS_LIST, WlanCloseHandle, WlanScan, DOT11_SSID}, Foundation::HANDLE};
+use std::{collections::HashSet, sync::mpsc::Receiver};
 
-use crate::{utils::{self}, available_network_list::NetworkList, bss_entry_list::BssList};
+use windows::Win32::{NetworkManagement::WiFi::{WlanOpenHandle, WLAN_INTERFACE_INFO_LIST, L2_NOTIFICATION_DATA, WLAN_INTERFACE_INFO, WlanEnumInterfaces, WlanRegisterNotification, WlanGetAvailableNetworkList, WLAN_AVAILABLE_NETWORK_LIST, WlanGetNetworkBssList, DOT11_BSS_TYPE, WLAN_BSS_LIST, WlanCloseHandle, WlanScan, DOT11_SSID, WLAN_BSS_ENTRY, WLAN_AVAILABLE_NETWORK}, Foundation::HANDLE};
+
+use crate::{utils::{self}, Network};
 
 use crate::windows_type_wrappers::{WlanNotifcationSource, AcmNotifcationType, OnexNotifcationType, HostedNetworkNoticationType, MsmNotifcationType};
 
@@ -15,6 +17,7 @@ struct WindowsNotifcation {
 pub struct WindowsApiClient {
     handle: HANDLE,
     network_interface: WLAN_INTERFACE_INFO,
+    notification_receiver: Receiver<WindowsNotifcation>
 }
 
 unsafe extern "system" fn notif_callback(param0: *mut L2_NOTIFICATION_DATA, _param1: *mut ::core::ffi::c_void) {
@@ -62,19 +65,21 @@ impl WindowsApiClient {
             // We could potentially pass a pointer to some a Sender to publish notifcations when we receive them, haven't looked into this properly
             let callback_context = None;
 
+            let (notfication_sender, notification_receiver) = std::sync::mpsc::channel::<WindowsNotifcation>();
+
+            
+
             WlanRegisterNotification(handle, notification_source_all, false, Some(notif_callback), callback_context, None, None);
 
-            WindowsApiClient { handle, network_interface: *network_interfaces.first().unwrap()}
+            WindowsApiClient { handle, network_interface: *network_interfaces.first().unwrap(), notification_receiver}
         }
 
     }
 
-    pub fn retrieve_network_list(&self) -> NetworkList {
+    fn retrieve_network_list(&self) -> Vec<WLAN_AVAILABLE_NETWORK> {
         unsafe {
-
             let mut network_list_ptr: *mut WLAN_AVAILABLE_NETWORK_LIST = std::ptr::null_mut();
         
-            println!("Fetching networks list");
             //This returns duplicates for networks that you have already connected to before, the networks that have a profile
             //https://github.com/jorgebv/windows-wifi-api/issues/7
             WlanGetAvailableNetworkList(
@@ -84,20 +89,26 @@ impl WindowsApiClient {
                 None,
                 &mut network_list_ptr,
             );
-        
-            NetworkList::from(network_list_ptr)        
+
+            let num_elements = (*network_list_ptr).dwNumberOfItems;
+            let mut networks_ssid_set: HashSet<String> = HashSet::new();
+            let mut networks = utils::get_x_list_from_windows_x_list_struct::<WLAN_AVAILABLE_NETWORK_LIST, WLAN_AVAILABLE_NETWORK>(network_list_ptr, num_elements);
+
+
+            //filter out the duplicate entries, as well as hidden networks which are displayed as having an empty ssid
+            //Once you perform an AP scan for a given hidden network, its ssid is populated in future calls to WlanGetAvailableNetworkList
+            networks.retain(|network| {
+                let current_ssid = utils::parse_ssid(network.dot11Ssid);
+                !current_ssid.is_empty() && networks_ssid_set.insert(current_ssid)
+            });
+
+            networks
         }
     }
 
-    pub fn retrieve_bss_list(&self, target_ssid: Option<DOT11_SSID>) -> BssList {
+    pub fn retrieve_bss_list(&self, target_ssid: Option<DOT11_SSID>) -> Vec<WLAN_BSS_ENTRY> {
+        let infrastructure_bss_type = 1;
         unsafe {
-            let (bss_type, security_enable) = match target_ssid {
-                Some(_) => {
-                    (1, true)   
-                },
-                None => (3, false)
-            };
-
             let mut network_bss_list_ptr: *mut WLAN_BSS_LIST = std::ptr::null_mut();
 
             if let Some(target_ssid) = target_ssid {
@@ -106,34 +117,67 @@ impl WindowsApiClient {
                     self.handle,
                     &self.network_interface.InterfaceGuid,
                     Some(struct_ptr),
-                    DOT11_BSS_TYPE(bss_type),
-                    security_enable,
+                    DOT11_BSS_TYPE(infrastructure_bss_type),
+                    true,
                     None,
                     &mut network_bss_list_ptr,
                 );
+
+                let network_bss_list = *network_bss_list_ptr;
+                let mut secured_bss_list = utils::get_x_list_from_windows_x_list_struct::<WLAN_BSS_LIST, WLAN_BSS_ENTRY>(network_bss_list_ptr, network_bss_list.dwNumberOfItems);
+
+                WlanGetNetworkBssList(
+                    self.handle,
+                    &self.network_interface.InterfaceGuid,
+                    Some(struct_ptr),
+                    DOT11_BSS_TYPE(infrastructure_bss_type),
+                    false,
+                    None,
+                    &mut network_bss_list_ptr,
+                );
+
+                let network_bss_list = *network_bss_list_ptr;
+                let mut open_bss_list = utils::get_x_list_from_windows_x_list_struct::<WLAN_BSS_LIST, WLAN_BSS_ENTRY>(network_bss_list_ptr, network_bss_list.dwNumberOfItems);
+                secured_bss_list.append(&mut open_bss_list);
+                return secured_bss_list;
+
             } else {
                 WlanGetNetworkBssList(
                     self.handle,
                     &self.network_interface.InterfaceGuid,
                     None,
-                    DOT11_BSS_TYPE(bss_type),
-                    security_enable,
+                    DOT11_BSS_TYPE(infrastructure_bss_type),
+                    false,
                     None,
                     &mut network_bss_list_ptr,
                 );
-            }
-  
-            let results = BssList::from(network_bss_list_ptr);
 
-            if let Some(target_ssid) = target_ssid {
-                let ssid_str = utils::parse_ssid(target_ssid);
-                println!("Results from targeted scan for {}:\n{:?}", ssid_str, results);
+                let network_bss_list = *network_bss_list_ptr;
+                let bss_list = utils::get_x_list_from_windows_x_list_struct::<WLAN_BSS_LIST, WLAN_BSS_ENTRY>(network_bss_list_ptr, network_bss_list.dwNumberOfItems);
+                return bss_list;
+
             }
-            
-         
-            results
         }
     }
+
+    pub fn retrieve_networks(&self, target_ssid: Option<DOT11_SSID>) -> Vec<Network> {
+        let bss_list= self.retrieve_bss_list(target_ssid);
+        let networks = self.retrieve_network_list();
+
+        let output_networks = networks.iter().flat_map(|network| {
+            bss_list.iter().filter_map(|bss| {
+                if network.dot11Ssid == bss.dot11Ssid {
+                    Some(Network::from((bss, network)))
+                } else {
+                    None
+                }
+            }).collect::<Vec<Network>>()
+        }).collect::<Vec<Network>>();
+        
+
+        output_networks
+    }
+
 
     pub fn trigger_ap_scan(&self, target_ssid: Option<DOT11_SSID>) {
         unsafe {
