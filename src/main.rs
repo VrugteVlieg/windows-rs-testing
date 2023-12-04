@@ -1,34 +1,35 @@
 pub mod utils;
 pub mod windows_api_client;
 pub mod windows_type_wrappers;
+pub mod windows_data_collector;
 
 use utils::NetworkBand;
 use windows::Win32::NetworkManagement::WiFi::{WLAN_AVAILABLE_NETWORK, WLAN_BSS_ENTRY};
 use windows_api_client::WindowsApiClient;
 
-fn main() {
 
-        let windows_client = WindowsApiClient::init();
+#[tokio::main]
+async fn main() {
+
+        WindowsApiClient::init();
 
         let target_ssid = utils::create_dot_11_ssid("Hello World Too");
         let mut counter = 0;
 
         loop {
-            counter+=1;
             println!("Starting cycle {counter}");
+            let directed_scan = counter % 2 == 0;
+            counter+=1;
 
-            let all_networks = windows_client.retrieve_networks(None);
-            println!("All networks:\n{all_networks:#?}");
-
-            if counter % 2 == 0 {
-                windows_client.trigger_ap_scan(Some(target_ssid));
-            } else {
-                windows_client.trigger_ap_scan(None);
-            }
+            
+            let result = WindowsApiClient::ap_scan(if directed_scan {Some(target_ssid)} else {None}).await;
+            
+            println!("All networks:\n{}", result.iter().map(ToString::to_string).collect::<Vec<String>>().join("\n"));
+            
 
             //Scans are guaranteed to be done after 4 seconds according to the MS spec 
             //https://learn.microsoft.com/en-us/windows/win32/api/wlanapi/nf-wlanapi-wlanscan
-            std::thread::sleep(std::time::Duration::from_secs(5));
+            std::thread::sleep(std::time::Duration::from_secs(3));
         }
 }
 
@@ -58,3 +59,9 @@ impl From<(&WLAN_BSS_ENTRY, &WLAN_AVAILABLE_NETWORK)> for Network {
         Network { ssid, bssid, rssi, channel, band, secured }
     }
 } 
+
+impl std::fmt::Display for Network {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} @ {}", self.ssid, self.bssid)
+    }
+}

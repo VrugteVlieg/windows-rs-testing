@@ -1,8 +1,9 @@
 use anyhow::anyhow;
+use windows::Win32::NetworkManagement::WiFi::L2_NOTIFICATION_DATA;
 
 
 //https://learn.microsoft.com/en-us/previous-versions/windows/desktop/legacy/ms706902(v=vs.85)
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum WlanNotifcationSource {
     UNKNOWN,
     ONEX,
@@ -41,7 +42,7 @@ impl TryFrom<u32> for WlanNotifcationSource {
 
 
 //https://learn.microsoft.com/en-us/windows/win32/api/dot1x/ne-dot1x-onex_notification_type
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OnexNotifcationType {
     ResultUpdate,
     AuthRestarted,
@@ -49,10 +50,10 @@ pub enum OnexNotifcationType {
 
 }
 
-impl TryFrom<i32> for OnexNotifcationType {
+impl TryFrom<u32> for OnexNotifcationType {
     type Error = anyhow::Error;
 
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
             1 => Ok(OnexNotifcationType::ResultUpdate),
             2 => Ok(OnexNotifcationType::AuthRestarted),
@@ -63,7 +64,7 @@ impl TryFrom<i32> for OnexNotifcationType {
 }
 
 //https://learn.microsoft.com/en-us/windows/win32/api/wlanapi/ne-wlanapi-wlan_notification_acm-r1
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AcmNotifcationType {
     AutoconfEnabled,
     AutoconfDisabled,
@@ -95,10 +96,10 @@ pub enum AcmNotifcationType {
 }
 
 
-impl TryFrom<i32> for AcmNotifcationType {
+impl TryFrom<u32> for AcmNotifcationType {
     type Error = anyhow::Error;
 
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
             1 => Ok(AcmNotifcationType::AutoconfEnabled),
             2 => Ok(AcmNotifcationType::AutoconfDisabled),
@@ -133,7 +134,7 @@ impl TryFrom<i32> for AcmNotifcationType {
 }
 
 //https://learn.microsoft.com/en-us/windows/win32/api/wlanapi/ne-wlanapi-wlan_notification_msm-r1
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MsmNotifcationType {
     Associating,
     Associated,
@@ -153,10 +154,10 @@ pub enum MsmNotifcationType {
     Disassociating
 }
 
-impl TryFrom<i32> for MsmNotifcationType {
+impl TryFrom<u32> for MsmNotifcationType {
     type Error = anyhow::Error;
 
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
             1 => Ok(MsmNotifcationType::Associating),
             2 => Ok(MsmNotifcationType::Associated),
@@ -180,22 +181,72 @@ impl TryFrom<i32> for MsmNotifcationType {
 }
 
 //https://learn.microsoft.com/en-gb/windows/win32/api/wlanapi/ne-wlanapi-wlan_hosted_network_notification_code?redirectedfrom=MSDN
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HostedNetworkNoticationType {
     StateChange,
     PeerStateChange,
     RadioStateChange
 }
 
-impl TryFrom<i32> for HostedNetworkNoticationType {
+impl TryFrom<u32> for HostedNetworkNoticationType {
     type Error = anyhow::Error;
 
-    fn try_from(value: i32) -> Result<Self, Self::Error> {
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
             4096 => Ok(HostedNetworkNoticationType::StateChange),
             4097 => Ok(HostedNetworkNoticationType::PeerStateChange),
             4098 => Ok(HostedNetworkNoticationType::RadioStateChange),
             _ => Err(anyhow!("Invalid Hosted Network notfication type code {value}")),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WlanNotificationWrapper {
+    Onex(OnexNotifcationType),
+    Acm(AcmNotifcationType),
+    Msm(MsmNotifcationType),
+    Hnwk(HostedNetworkNoticationType),
+    Other(WlanNotifcationSource, u32)
+}
+
+
+#[derive(Debug, Clone)]
+pub enum WlanNotifcationTopic {
+    Roaming,
+    ApScan
+}
+
+
+// impl TryFrom<WlanNotificationWrapper> for WlanNotifcationTopic {
+//     type Error = anyhow::Error;
+//     fn try_from(value: WlanNotificationWrapper) -> Result<Self, Self::Error> {
+//         match value {
+//             WlanNotificationWrapper::Acm(AcmNotifcationType::ScanComplete) |
+//             WlanNotificationWrapper::Acm(AcmNotifcationType::ScanFail) |
+//             WlanNotificationWrapper::Acm(AcmNotifcationType::ScanListRefresh) => Ok(WlanNotifcationTopic::ApScan),
+//             WlanNotificationWrapper::Msm()
+            
+
+
+//         }
+//     }
+// }
+
+
+impl TryFrom<L2_NOTIFICATION_DATA> for WlanNotificationWrapper {
+    type Error = anyhow::Error;
+
+    fn try_from(notification_data: L2_NOTIFICATION_DATA) -> Result<Self, Self::Error> {
+        let notification_source = WlanNotifcationSource::try_from(notification_data.NotificationSource)?;
+        let notification_code = notification_data.NotificationCode;
+        match notification_source {
+            WlanNotifcationSource::ACM => Ok(WlanNotificationWrapper::Acm(AcmNotifcationType::try_from(notification_code)?)),
+            WlanNotifcationSource::ONEX => Ok(WlanNotificationWrapper::Onex(OnexNotifcationType::try_from(notification_code)?)),
+            WlanNotifcationSource::HNWK => Ok(WlanNotificationWrapper::Hnwk(HostedNetworkNoticationType::try_from(notification_code)?)),
+            // https://stackoverflow.com/questions/63916457/wlan-notification-msm-notificationcode-59
+            WlanNotifcationSource::MSM => Ok(WlanNotificationWrapper::Msm(MsmNotifcationType::try_from(notification_code)?)),
+            _ => Err(anyhow!("No valid Wlan Notifcation Type for ({:?}, {})", notification_source, notification_code))
         }
     }
 }
