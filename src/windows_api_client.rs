@@ -18,10 +18,7 @@ use crate::{
 
 use state::InitCell;
 
-use crate::windows_type_wrappers::{
-    AcmNotifcationType, HostedNetworkNoticationType, MsmNotifcationType, OnexNotifcationType,
-    WlanNotifcationSource,
-};
+use crate::windows_type_wrappers::AcmNotifcationType;
 
 static GLOBAL_WINDOWS_API_CLIENT: InitCell<WindowsApiClient> = InitCell::new();
 

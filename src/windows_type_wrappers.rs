@@ -211,28 +211,6 @@ pub enum WlanNotificationWrapper {
 }
 
 
-#[derive(Debug, Clone)]
-pub enum WlanNotifcationTopic {
-    Roaming,
-    ApScan
-}
-
-
-// impl TryFrom<WlanNotificationWrapper> for WlanNotifcationTopic {
-//     type Error = anyhow::Error;
-//     fn try_from(value: WlanNotificationWrapper) -> Result<Self, Self::Error> {
-//         match value {
-//             WlanNotificationWrapper::Acm(AcmNotifcationType::ScanComplete) |
-//             WlanNotificationWrapper::Acm(AcmNotifcationType::ScanFail) |
-//             WlanNotificationWrapper::Acm(AcmNotifcationType::ScanListRefresh) => Ok(WlanNotifcationTopic::ApScan),
-//             WlanNotificationWrapper::Msm()
-            
-
-
-//         }
-//     }
-// }
-
 
 impl TryFrom<L2_NOTIFICATION_DATA> for WlanNotificationWrapper {
     type Error = anyhow::Error;
