@@ -41,40 +41,15 @@ unsafe extern "system" fn notif_callback(
     _param1: *mut ::core::ffi::c_void,
 ) {
     let notifcation_data = *param0;
-    let notification_source =
-        WlanNotifcationSource::try_from(notifcation_data.NotificationSource).unwrap();
 
-    let notification_reason = notifcation_data.NotificationCode;
-    let notification_string = match notification_source {
-        WlanNotifcationSource::ACM => Some(format!(
-            "{:?}",
-            AcmNotifcationType::try_from(notification_reason).unwrap()
-        )),
-        WlanNotifcationSource::ONEX => Some(format!(
-            "{:?}",
-            OnexNotifcationType::try_from(notification_reason).unwrap()
-        )),
-        WlanNotifcationSource::HNWK => Some(format!(
-            "{:?}",
-            HostedNetworkNoticationType::try_from(notification_reason).unwrap()
-        )),
-        // https://stackoverflow.com/questions/63916457/wlan-notification-msm-notificationcode-59
-        WlanNotifcationSource::MSM if notification_reason != 59 => Some(format!(
-            "{:?}",
-            MsmNotifcationType::try_from(notification_reason).unwrap()
-        )),
-        _ => None,
-    };
-    if let Some(notification_string) = notification_string {
+    if let Ok(parsed_notifcation) = WlanNotificationWrapper::try_from(notifcation_data) {
         let notifcation_sender = GLOBAL_WINDOWS_API_CLIENT.get().notification_sender.clone();
-        let to_send = WlanNotificationWrapper::try_from(notifcation_data).unwrap();
-
-        println!("{:#?}", to_send);
-
-        match (notifcation_sender).send(to_send) {
+        match (notifcation_sender).send(parsed_notifcation) {
             Ok(v) => println!("Sent notification to {v} listeners"),
             Err(e) => println!("Error while sending message:/n{:?}", e),
         }
+    } else {
+        println!("Unable to parse notifcation data {:?}", notifcation_data);
     }
 }
 
