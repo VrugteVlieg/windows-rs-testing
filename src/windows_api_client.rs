@@ -1,5 +1,6 @@
 use std::{collections::HashSet, time::Duration};
 
+use chrono::{Utc, DateTime};
 use windows::Win32::{
     Foundation::HANDLE,
     NetworkManagement::WiFi::{
@@ -12,8 +13,8 @@ use windows::Win32::{
 
 use crate::{
     utils::{self},
-    windows_type_wrappers::WlanNotificationWrapper,
-    Network,
+    windows_type_wrappers::{WlanNotificationWrapper, MsmNotifcationType},
+    Network, roaming::UxiRoamEvent, roaming_windows,
 };
 
 use state::InitCell;
@@ -22,7 +23,7 @@ use crate::windows_type_wrappers::AcmNotifcationType;
 
 static GLOBAL_WINDOWS_API_CLIENT: InitCell<WindowsApiClient> = InitCell::new();
 
-use tokio::{sync::broadcast, task::JoinHandle};
+use tokio::{sync::{broadcast, mpsc}, task::JoinHandle};
 
 use anyhow::anyhow;
 
@@ -42,11 +43,9 @@ unsafe extern "system" fn notif_callback(
     if let Ok(parsed_notifcation) = WlanNotificationWrapper::try_from(notifcation_data) {
         let notifcation_sender = GLOBAL_WINDOWS_API_CLIENT.get().notification_sender.clone();
         match (notifcation_sender).send(parsed_notifcation) {
-            Ok(v) => println!("Sent notification to {v} listeners"),
+            Ok(_) => {},
             Err(e) => println!("Error while sending message:/n{:?}", e),
         }
-    } else {
-        println!("Unable to parse notifcation data {:?}", notifcation_data);
     }
 }
 
@@ -90,10 +89,17 @@ impl WindowsApiClient {
                 None,
                 None,
             );
+
             let notification_logging_handle = tokio::spawn(async move {
                 loop {
                     match notification_receiver.recv().await {
-                        Ok(notification) => println!("Windows notfication {notification:#?}"),
+                        Ok(notification) => {
+                            if !matches!(notification, WlanNotificationWrapper::Msm(MsmNotifcationType::SignalQualityChange(_))) {
+                                let time: DateTime<Utc> = chrono::DateTime::from(std::time::SystemTime::now());
+                                println!("{} Windows notfication {notification}", time.format("%T"));
+                            }
+
+                        },
                         Err(e) => println!("Windows notification error {e:#?}")
                     }
                 }
@@ -207,6 +213,7 @@ impl WindowsApiClient {
         }
     }
 
+
     async fn await_notification(
         target: WlanNotificationWrapper,
         timeout: Option<Duration>,
@@ -229,7 +236,7 @@ impl WindowsApiClient {
                 val = receiver.recv() => {
                     match val {
                         Ok(val) => {
-                            if val == target {
+                            if val.shallow_equals(target.clone()) {
                                 return Ok(val)
                             }
                         },
@@ -250,6 +257,25 @@ impl WindowsApiClient {
         Self::retrieve_networks(target_ssid)
     }
 
+
+    pub fn track_signal_changes() -> mpsc::Receiver<u32> {
+        let (tx, rx) = mpsc::channel::<u32>(16);
+        tokio::spawn(async move {
+            loop {
+                let val = WindowsApiClient::await_notification(WlanNotificationWrapper::Msm(MsmNotifcationType::SignalQualityChange(0)), None).await;
+                if let Ok(WlanNotificationWrapper::Msm(MsmNotifcationType::SignalQualityChange(v))) = val {
+                    let _ = tx.send(v);
+                }
+            }
+        });
+        rx
+
+    }
+
+    pub fn track_roaming_events() -> broadcast::Receiver<UxiRoamEvent> {
+        roaming_windows::create_uxi_roaming_channel(GLOBAL_WINDOWS_API_CLIENT.get().notification_sender.subscribe())
+        
+    }
     fn retrieve_networks(target_ssid: Option<DOT11_SSID>) -> Vec<Network> {
         let bss_list = WindowsApiClient::retrieve_bss_list(target_ssid);
         let networks = WindowsApiClient::retrieve_network_list();
